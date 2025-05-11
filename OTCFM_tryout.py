@@ -169,19 +169,22 @@ start = time.time()
 for k in range(30000):
     optimizer.zero_grad()
 
-    x0 = checker(batch_size).to(device)
-    x1 = four_circles_spread(batch_size, .75, .0125, .25).to(device)
-    #x1 = sample_moons(batch_size)
+    #x0 = checker(batch_size).to(device)
+    #x1 = four_circles_spread(batch_size, .75, .0125, .25).to(device)
+
+    #dataset from jupyter tutorial
+    x0 = sample_8gaussians(batch_size).to("cuda")
+    x1 = sample_moons(batch_size).to("cuda")
 
     # Use the ConditionalFlowMatcher to sample xt and compute the conditional flow (ut)
     #t, xt, ut = cfm.sample_location_and_conditional_flow(x0, x1)
-    #t, xt, ut = ot_xt_ut(x0, x1, sigma=sigma)
+    t, xt, ut = ot_xt_ut(x0, x1, sigma=sigma)
 
     #determine the optimal transport plan and compute the vector field using cfm library:
-    x0, x1 = ot_sampler.sample_plan(x0, x1)
-    t = torch.rand(batch_size, 1, device=device)
-    xt = x0 + t * (x1 - x0)
-    ut = x1 - x0
+    #x0, x1 = ot_sampler.sample_plan(x0, x1)
+    #t = torch.rand(batch_size, 1, device=device)
+    #xt = x0 + t * (x1 - x0)
+    #ut = x1 - x0
 
     # Concatenate the sample location xt and t for the model input. For t from cfm_sample_location_and_conditional_flow:
     #vt = model(torch.cat([xt, t[:, None]], dim=-1))
@@ -194,7 +197,7 @@ for k in range(30000):
     optimizer.step()
 
     #visualize the vector field transformation per n-iterations
-    if (k + 1) % 5000 == 0:
+    if (k + 1) % 500 == 0:
         end = time.time()
         print(f"{k+1}: loss {loss.item():0.3f} time {(end - start):0.2f}")
         start = end
@@ -203,7 +206,7 @@ for k in range(30000):
         )
         with torch.no_grad():
             traj = node.trajectory(
-                checker(1024).to("cuda"),
+                sample_8gaussians(1024).to("cuda"),
                 t_span=torch.linspace(0, 1, 10),
             )
             plot_trajectories(traj.cpu().numpy())
