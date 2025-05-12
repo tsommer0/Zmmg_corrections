@@ -8,6 +8,7 @@ import numpy as np
 import ot as pot
 import torch
 from torch import Tensor
+from torch.utils.data import DataLoader, TensorDataset
 import torchdyn
 from torchdyn.core import NeuralODE
 from torchdyn.datasets import generate_moons
@@ -164,51 +165,81 @@ optimizer = torch.optim.Adam(model.parameters())
 #chose MSE as loss function using MSELoss class from torch
 loss_function = torch.nn.MSELoss()
 
-batch_size = 256
+batch_size = 4 #256
+n_epochs = 100
+n_iterations = 3000
 start = time.time()
-for k in range(30000):
-    optimizer.zero_grad()
 
-    #x0 = checker(batch_size).to(device)
-    #x1 = four_circles_spread(batch_size, .75, .0125, .25).to(device)
+#generate data
+n_data = 5000
+data = sample_8gaussians(n_data).to(device)
+labels = sample_moons(n_data).to(device)
 
-    #dataset from jupyter tutorial
-    x0 = sample_8gaussians(batch_size).to("cuda")
-    x1 = sample_moons(batch_size).to("cuda")
+#prepare the dataloader function to generate batches
+dataloader = DataLoader(
+    TensorDataset(data, labels), batch_size=batch_size, shuffle=True,
+)
 
-    # Use the ConditionalFlowMatcher to sample xt and compute the conditional flow (ut)
-    #t, xt, ut = cfm.sample_location_and_conditional_flow(x0, x1)
-    t, xt, ut = ot_xt_ut(x0, x1, sigma=sigma)
+#%%
 
-    #determine the optimal transport plan and compute the vector field using cfm library:
-    #x0, x1 = ot_sampler.sample_plan(x0, x1)
-    #t = torch.rand(batch_size, 1, device=device)
-    #xt = x0 + t * (x1 - x0)
-    #ut = x1 - x0
+#train the model using BOTFM
+for epoch in range(n_epochs):
+    for step, (x0,x1) in enumerate(dataloader):
+        optimizer.zero_grad()
 
-    # Concatenate the sample location xt and t for the model input. For t from cfm_sample_location_and_conditional_flow:
-    #vt = model(torch.cat([xt, t[:, None]], dim=-1))
-    #Concatenate the sample location xt and t for the model input. For t from ot_xt_ut:
-    vt = model(torch.cat([xt, t], dim=-1))
-    loss = loss_function(vt, ut)
-    #loss = torch.mean((vt - ut) ** 2)
+        
+        x0 = x0.to(device)
+        x1 = x1.to(device)
 
-    loss.backward()
-    optimizer.step()
+        #x0 = checker(batch_size).to(device)
+        #x1 = four_circles_spread(batch_size, .75, .0125, .25).to(device)
+
+        #dataset from jupyter tutorial
+        #x0 = sample_8gaussians(batch_size).to("cuda")
+        #x1 = sample_moons(batch_size).to("cuda")
+
+        # Use the ConditionalFlowMatcher to sample xt and compute the conditional flow (ut)
+        t, xt, ut = cfm.sample_location_and_conditional_flow(x0, x1)
+        t = t.unsqueeze(-1)
+
+        #print(torch.cat([xt, t], dim=-1))
+
+        #determine the optimal transport plan and compute the vector field using cfm library:
+        #x0, x1 = ot_sampler.sample_plan(x0, x1)
+        #t = torch.rand(batch_size, 1, device=device)
+        #xt = x0 + t * (x1 - x0)
+        #ut = x1 - x0
+
+        # Concatenate the sample location xt and t for the model input. For t from cfm_sample_location_and_conditional_flow:
+        vt = model(torch.cat([xt, t], dim=-1))
+        loss = loss_function(vt, ut)
+        #loss = torch.mean((vt - ut) ** 2)
+
+        loss.backward()
+        optimizer.step()
 
     #visualize the vector field transformation per n-iterations
-    if (k + 1) % 500 == 0:
-        end = time.time()
-        print(f"{k+1}: loss {loss.item():0.3f} time {(end - start):0.2f}")
-        start = end
-        node = NeuralODE(
-            torch_wrapper(model), solver="dopri5", sensitivity="adjoint", atol=1e-4, rtol=1e-4
+    end = time.time()
+    print(f"Epoch {epoch}: loss {loss.item():0.3f} time {(end - start):0.2f}")
+    start = end
+    node = NeuralODE(
+        torch_wrapper(model), solver="dopri5", sensitivity="adjoint", atol=1e-4, rtol=1e-4
+    )
+    with torch.no_grad():
+        traj = node.trajectory(
+            sample_8gaussians(1024).to("cuda"),
+            t_span=torch.linspace(0, 1, 10),
         )
-        with torch.no_grad():
-            traj = node.trajectory(
-                sample_8gaussians(1024).to("cuda"),
-                t_span=torch.linspace(0, 1, 10),
-            )
-            plot_trajectories(traj.cpu().numpy())
-    
-# %%
+        plot_trajectories(traj.cpu().numpy())
+
+#%%
+
+
+
+
+
+
+
+
+
+#%%
