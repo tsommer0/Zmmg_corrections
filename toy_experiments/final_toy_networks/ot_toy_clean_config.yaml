@@ -1,0 +1,14 @@
+# Batch-Größe für DataLoader
+batch_size: 128
+
+# Anzahl der Trainingsepochen
+n_epochs: 3
+
+# Standardabweichung σ für ConditionalFlowMatcher
+sigma: 0.02
+
+# Lernrate für den Optimizer
+lr: 0.0005
+
+# Anzahl der Samples, die generiert werden
+n_data: 200000
