@@ -26,8 +26,8 @@ import yaml
 #custom imports
 from bsc_sommer_project_module.bot.balanced import ot_matcher_caio
 from bsc_sommer_project_module.general.datahandling import generate_tensors, unstandardize_tensor, random_splits, event_location_filter
-from bsc_sommer_project_module.general.structuring import apply_ot_strategy, initialize_model, load_weights, apply_morphing_strategy, lossplot_train
-from bsc_sommer_project_module.cfm import cfm_t_xt_ut, cfm_morphing
+from bsc_sommer_project_module.general.structuring import apply_ot_strategy, initialize_model, load_weights, apply_morphing_strategy_plot, lossplot_train
+from bsc_sommer_project_module.cfm import cfm_t_xt_ut, cfm_morphing_plot
 
 #%%
 #custom imports from plotting scripts, for the copied plotting parts
@@ -43,8 +43,17 @@ def load_config():
     parser = argparse.ArgumentParser(description='OT Toy Beispiel mit CFM bzw. Regression')
     parser.add_argument('--config',    type=str,   help='Pfad zur YAML-Konfigurationsdatei')
     parser.add_argument('--event_location',      type=str,   default='all', choices=['all', 'barrel', 'endcap'], help='Event location to use for the analysis')
-    parser.add_argument('--morphing_strategy', type=str, default='regular', choices=['cfm', 'regular'], help='Morphing strategy to use')
-    parser.add_argument('--path', type=str, default='../general_training_scripts/model_weights/regular.pth', help='Path to the model weights file')
+    parser.add_argument('--batch_size',type=int,   default=128)
+    parser.add_argument('--n_epochs',  type=int,   default=50)
+    parser.add_argument('--sigma',     type=float, default=0.001)
+    parser.add_argument('--lr',        type=float, default=1e-3)
+    parser.add_argument('--hidden_dimensions', type=int, default=128, help='Number of hidden dimensions in the model')
+    #TO DO : Implement layers:
+    parser.add_argument('--layers', type=int, default=5, help='Number of layers in the model')
+
+    parser.add_argument('--OT_strategy', type=str, default='caio_OT', choices=['None', 'caio_OT', 'hard_UOT'], help='OT strategy used')
+    parser.add_argument('--morphing_strategy', type=str, default='cfm', choices=['cfm', 'regular'], help='Morphing strategy used')
+    parser.add_argument('--best_model', type=bool, default=True, help='Use the best model or the nth epoch model')
 
     parser.add_argument('--variables_cms_names', type=str, default=[
             "photon_r9", 
@@ -92,23 +101,41 @@ if __name__ == '__main__':
 variables_cms_names = args.variables_cms_names
 variables_mc_names = args.variables_mc_names
 conditions_names = args.conditions
-path = args.path
-
 
 #initialize further variables
 morphing_strategy = args.morphing_strategy
-print(f"Using morphing strategy: {morphing_strategy} with the weights from {path}")
+hidden_dimensions = args.hidden_dimensions
+ot_strategy = args.OT_strategy
+layers = args.layers
+lr = args.lr
+batch_size = args.batch_size
+epochs = args.n_epochs
+best_model = args.best_model
+
+#preparing the directory for saving the training results
+#-----------UNNECESSARY HERE. IS COMBINED WITH PLOTS{year} BELOW IN CAIOS PLOTTING CODE----------------
+#out_dir = f'./corrected_plot_1/{morphing_strategy}_{ot_strategy}/{layers}_layers/{hidden_dimensions}_hidden_dimensions/{lr}_learning_rate/{batch_size}_batch_size'
+#os.makedirs(out_dir, exist_ok=True)
+
+if best_model == False:
+    path_to_weights = f'../general_training_scripts/training_results_1/{morphing_strategy}_{ot_strategy}/{layers}_layers/{hidden_dimensions}_hidden_dimensions/{lr}_learning_rate/{batch_size}_batch_size/epochs{epochs}.pth'
+    print(f"Using morphing strategy: {morphing_strategy} with the weights from {path_to_weights}")
+elif best_model == True:
+    path_to_weights = f'../general_training_scripts/training_results_1/{morphing_strategy}_{ot_strategy}/{layers}_layers/{hidden_dimensions}_hidden_dimensions/{lr}_learning_rate/{batch_size}_batch_size/best_model.pth'
+    print(f"Using morphing strategy: {morphing_strategy} with the weights from {path_to_weights}")
 
 #initialize the model
 model = initialize_model(
     base_dimensions=variables_mc_names,
     conditions_dimensions=conditions_names,
     target_dimensions=variables_cms_names,
+    layers=layers,
+    hidden_dimensions=hidden_dimensions,
     strategy=morphing_strategy,
     device=device
 )
 #load the model weights
-load_weights(model, device, path)
+load_weights(model, device, path_to_weights)
 
 #%%
 #load the data
@@ -127,18 +154,25 @@ target, standardized_target, mean_target, std_target = generate_tensors(use_data
 base, standardized_base, mean_base, std_base = generate_tensors(use_mc_df, variables_mc_names)
 conditions, standardized_conditions, mean_conditions, std_conditions = generate_tensors(use_mc_df, conditions_names)
 
-#apply the chosen morphing to the base (=mc) data
-morphed_base = apply_morphing_strategy(
-    model=model,
-    base_batch=standardized_base.to(device),
-    conditions_batch=standardized_conditions.to(device),
-    strategy=morphing_strategy
-)
-
-#revert standardization
-morphed_base = unstandardize_tensor(morphed_base, mean_base.to(device), std_base.to(device))
-# Detach and convert to numpy for plotting
-morphed_base = morphed_base.detach().cpu().numpy()
+# Perform batched morphing to avoid CUDA OOM
+model.eval()
+plot_batch_size = 1024  # adjust this value if needed
+morphed_chunks = []
+with torch.no_grad():
+    total_samples = standardized_base.size(0)
+    for start_idx in range(0, total_samples, plot_batch_size):
+        end_idx = min(start_idx + plot_batch_size, total_samples)
+        base_batch_i = standardized_base[start_idx:end_idx].to(device)
+        cond_batch_i = standardized_conditions[start_idx:end_idx].to(device)
+        morphed_batch_i = apply_morphing_strategy_plot(
+            model=model,
+            base_batch=base_batch_i,
+            conditions_batch=cond_batch_i,
+            strategy=morphing_strategy
+        )
+        morphed_batch_i = unstandardize_tensor(morphed_batch_i, mean_base.to(device), std_base.to(device))
+        morphed_chunks.append(morphed_batch_i.detach().cpu().numpy())
+morphed_base = np.concatenate(morphed_chunks, axis=0)
 
 #build morphed DataFrame with "<variable>_morphed" column names
 morphed_cols = [f"{var}_morphed" for var in variables_mc_names]
@@ -164,8 +198,24 @@ data_var_list = variables_cms_names
 
 year = "2024"
 total_lumi = "35.9 fb^{-1}" #idk where this comes from
-outdir = f"./plots_{year}/"
+if best_model==False:
+    outdir = f'./plots_{year}/{morphing_strategy}_{ot_strategy}/{layers}_layers/{hidden_dimensions}_hidden_dimensions/{lr}_learning_rate/{batch_size}_batch_size/{epochs}_epochs'
+elif best_model==True:
+    outdir = f'./plots_{year}/{morphing_strategy}_{ot_strategy}/{layers}_layers/{hidden_dimensions}_hidden_dimensions/{lr}_learning_rate/{batch_size}_batch_size/best_model'
 os.makedirs(outdir, exist_ok=True)
+
+'''
+# Standardize use_data_df entirely (no weights here)
+use_data_df = (use_data_df - use_data_df.mean()) / use_data_df.std()
+
+# Preserve weights from MC before standardizing feature columns
+weights = use_mc_df["weights"]
+
+# Standardize only the MC feature columns, not weights
+use_mc_df[variables_mc_names] = (use_mc_df[variables_mc_names] - use_mc_df[variables_mc_names].mean()) / use_mc_df[variables_mc_names].std()
+
+# Restore the original weights column
+use_mc_df["weights"] = weights'''
 
 data_df = use_data_df[variables_cms_names]
 # Include weights column in mc_df so it can be used below
@@ -240,3 +290,7 @@ for entry, entry_corr, entry_data in zip(var_list, var_list_corr, data_var_list)
                 postEE          = True,
                 endcap          = endcap
             )
+
+
+
+print(f"Plots saved to {outdir}")

@@ -1,0 +1,29 @@
+executable = python_job.sh
+
+# general software environment: vanilla=normal
+universe = vanilla
+
+# copy environment variables during submission?
+getenv = true
+
+# e-mail notification for each job?
+notification = never
+
+# Requirements (or "Class Ads"): >=512 MB RAM und >=1000000 kilobyte on local disk
+request_memory = 512
+request_disk   = 1000000
+
+# current directory (well, probably in the home directory. For a small number of jobs it is fine.)
+InitialDir = .
+
+# logs and outputs
+log    = python_job.$(Cluster).$(Process).log
+output = python_job.$(Cluster).$(Process).out
+error  = python_job.$(Cluster).$(Process).err
+
+
+# Arguments = ...
+
+# submit 1 job with these arguments
+# ($(Process) is 0)
+queue

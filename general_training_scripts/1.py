@@ -40,16 +40,19 @@ def load_config():
     parser = argparse.ArgumentParser(description='OT Toy Beispiel mit CFM bzw. Regression')
     parser.add_argument('--config',    type=str,   help='Pfad zur YAML-Konfigurationsdatei')
     parser.add_argument('--event_location',      type=str,   default='all')
-    parser.add_argument('--batch_size',type=int,   default=512)
-    parser.add_argument('--n_epochs',  type=int,   default=200)
+    parser.add_argument('--batch_size',type=int,   default=1024)
+    parser.add_argument('--n_epochs',  type=int,   default=250)
     parser.add_argument('--sigma',     type=float, default=0.001)
     parser.add_argument('--lr',        type=float, default=1e-3)
-    parser.add_argument('--train_fraction',type=float, default=0.6)
-    parser.add_argument('--val_fraction',  type=float, default=0.2)
+    parser.add_argument('--train_fraction',type=float, default=0.7)
+    parser.add_argument('--val_fraction',  type=float, default=0.1)
     parser.add_argument('--gpu_abuse', type=int, default=8, help='Number of workers for DataLoader')
+    parser.add_argument('--hidden_dimensions', type=int, default=512, help='Number of hidden dimensions in the model')
+    #TO DO : Implement layers:
+    parser.add_argument('--layers', type=int, default=5, help='Number of layers in the model')
 
     parser.add_argument('--OT_strategy', type=str, default='caio_OT', choices=['None', 'caio_OT', 'hard_UOT'], help='OT strategy to use')
-    parser.add_argument('--morphing_strategy', type=str, default='regular', choices=['cfm', 'regular'], help='Morphing strategy to use')
+    parser.add_argument('--morphing_strategy', type=str, default='cfm', choices=['cfm', 'regular'], help='Morphing strategy to use')
 
     parser.add_argument('--variables_cms', type=str, default=[
             "photon_r9", 
@@ -106,7 +109,13 @@ lr = args.lr
 sigma=args.sigma
 ot_strategy = args.OT_strategy
 morphing_strategy = args.morphing_strategy
+layers = args.layers
+hidden_dimensions = args.hidden_dimensions
 print(f"Using morphing strategy: {morphing_strategy} with the OT strategy {ot_strategy}")
+
+#preparing the directory for saving the training results
+out_dir = f'./training_results_1/{morphing_strategy}_{ot_strategy}/{layers}_layers/{hidden_dimensions}_hidden_dimensions/{lr}_learning_rate/{batch_size}_batch_size'
+os.makedirs(out_dir, exist_ok=True)
 
 train_fraction = args.train_fraction
 val_fraction = args.val_fraction
@@ -116,32 +125,49 @@ model = initialize_model(
     base_dimensions=variables_mc_names,
     conditions_dimensions=conditions_names,
     target_dimensions=variables_cms_names,
+    layers=layers,
+    hidden_dimensions=hidden_dimensions,
     strategy=morphing_strategy,
     device=device
 )
 #%%
 #load the data as pandas dataframes
-data_df = pd.read_pickle('../data_read_and_store/data_df.pkl')
-mc_df = pd.read_pickle('../data_read_and_store/mc_df.pkl')
+data_df = pd.read_pickle('../data_read_and_store/data_df_smeared.pkl')
+mc_df = pd.read_pickle('../data_read_and_store/mc_df_smeared.pkl')
 
 #load the event weights to insert into the loss function
 weights, standardized_weights, mean_weights, std_weights = generate_tensors(mc_df, ['weights'])
-#multiply wieghts so that their order of magnitude becomes >e-5
-weights = weights.abs() * 1e6
+#take absolute of weights and normalize for numerical stability
+print(weights.mean())
+weights = weights.abs()
+print(weights.mean())
+weights = weights / weights.mean().item()
+print(f"Mean of weights: {weights.mean()}")
+
+'''
 #split the weights into training, validation and test set
 weights_train_tensor, weights_val_tensor, weights_test_tensor = random_splits(weights, train_fraction, val_fraction)
-
+'''
 
 #load the data as tensors
 target, standardized_target, mean_target, std_target = generate_tensors(data_df, variables_cms_names)
 base, standardized_base, mean_base, std_base = generate_tensors(mc_df, variables_mc_names)
 conditions, standardized_conditions, mean_conditions, std_conditions = generate_tensors(mc_df, conditions_names)
 
-#splitting the standardized data in training, validation and test set
+base_train_tensor, base_val_tensor, base_test_tensor, conditions_train_tensor, conditions_val_tensor, conditions_test_tensor, weights_train_tensor, weights_val_tensor, weights_test_tensor = random_splits(
+    standardized_base, standardized_conditions, weights, train_fraction=train_fraction, val_fraction=val_fraction
+    )
+
+target_train_tensor, target_val_tensor, target_test_tensor = random_splits(
+    standardized_target, train_fraction=train_fraction, val_fraction=val_fraction
+    )
+
+
+'''
 target_train_tensor, target_val_tensor, target_test_tensor = random_splits(standardized_target, train_fraction, val_fraction)
 base_train_tensor, base_val_tensor, base_test_tensor = random_splits(standardized_base, train_fraction, val_fraction)
 conditions_train_tensor, conditions_val_tensor, conditions_test_tensor = random_splits(standardized_conditions, train_fraction, val_fraction)
-
+'''
 #%%
 #DataLoaders for the weights
 weights_train_loader = DataLoader(weights_train_tensor, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=True)
@@ -176,7 +202,7 @@ scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
     optimizer,
     mode='min',
     factor=0.5,
-    patience=5
+    patience=7
 )
 
 array_loss_train = []
@@ -209,6 +235,11 @@ if morphing_strategy == 'cfm':#------------------------------------------------c
         mse_morph_epoch.append(mse.item())
         '''
 
+        if epoch == 0:
+            save_weights(model, filename=f"epochs{epoch}.pth", out_dir=out_dir)
+
+        model.train()
+
         for step, (base_batch, conditions_batch, target_batch, weights_batch) in enumerate(zip(base_train_loader, conditions_train_loader, target_train_loader, weights_train_loader)):
             optimizer.zero_grad()
             #ensure that the batches are on the correct device
@@ -218,7 +249,7 @@ if morphing_strategy == 'cfm':#------------------------------------------------c
             weights_batch = weights_batch.to(device)
 
             # apply the selected OT strategy (ot_strategy string variable from the config) by rearranging the batches
-            base_batch, conditions_batch, target_batch = apply_ot_strategy(base_batch, conditions_batch, target_batch, ot_strategy)
+            base_batch, conditions_batch, target_batch, weights_batch = apply_ot_strategy(base_batch, conditions_batch, target_batch, weights_batch, ot_strategy)
 
 
             '-----------------------------------------------cfm specific--------------------------------------------------'
@@ -250,7 +281,7 @@ if morphing_strategy == 'cfm':#------------------------------------------------c
 
         array_loss_train.append(np.mean(array_loss_train_epoch))
 
-        print("Epoch: ", epoch)
+        print("Epoch: ", epoch+1)
         print("Mean loss: ", array_loss_train[epoch])
 
         model.eval()
@@ -265,7 +296,7 @@ if morphing_strategy == 'cfm':#------------------------------------------------c
                 weights_batch = weights_batch.to(device)
 
                 # apply the selected OT strategy
-                base_batch, conditions_batch, target_batch = apply_ot_strategy(base_batch, conditions_batch, target_batch, ot_strategy)
+                base_batch, conditions_batch, target_batch, weights_batch = apply_ot_strategy(base_batch, conditions_batch, target_batch, weights_batch, ot_strategy)
 
                 '-----------------------------------------------cfm specific--------------------------------------------------'
                 #calculate the optimal transport field direction and magnitude ut and its position xt at time t from conditional flow matching
@@ -290,8 +321,13 @@ if morphing_strategy == 'cfm':#------------------------------------------------c
             scheduler.step(array_loss_val[-1])
             #in case we want to compare mse between cfm and regression: mse_morph.append(np.mean(mse_morph_epoch))
 
+            if (epoch+1) % 10 == 0:  # Save model every 10 epochs
+                save_weights(model, filename=f"epochs{epoch+1}.pth", out_dir=out_dir)
+                lossplot_train(array_loss_train, array_loss_val, epoch+1, filename=f"loss_plot_epochs{epoch+1}.png", out_dir=out_dir)
+
+
             end = time.time()
-            print(f"Epoch {epoch} completed in {(end-start):0.2f} seconds. ")
+            print(f"Epoch {epoch+1} completed in {(end-start):0.2f} seconds. ")
             start=end
 
 elif morphing_strategy == 'regular':#------------------------------------------regular regression training-----------------------------------------
@@ -299,6 +335,12 @@ elif morphing_strategy == 'regular':#------------------------------------------r
         #arrays storing the loss per batch for the current epoch
         array_loss_train_epoch = []
         array_loss_val_epoch = []
+
+        if epoch == 0:
+            save_weights(model, filename=f"epochs{epoch}.pth", out_dir=out_dir)
+
+        model.train()
+
         for step, (base_batch, conditions_batch, target_batch, weights_batch) in enumerate(zip(base_train_loader, conditions_train_loader, target_train_loader, weights_train_loader)):
             optimizer.zero_grad()
             #ensure that the batches are on the correct device
@@ -308,7 +350,7 @@ elif morphing_strategy == 'regular':#------------------------------------------r
             weights_batch = weights_batch.to(device)
 
             # apply the selected OT strategy
-            base_batch, conditions_batch, target_batch = apply_ot_strategy(base_batch, conditions_batch, target_batch, ot_strategy)
+            base_batch, conditions_batch, target_batch, weights_batch = apply_ot_strategy(base_batch, conditions_batch, target_batch, weights_batch, ot_strategy)
             
             '-----------------------------------------------regression specific--------------------------------------------------'
             #concanatenate the base_batch and conditions_batch to create the input for the model
@@ -335,7 +377,7 @@ elif morphing_strategy == 'regular':#------------------------------------------r
 
         array_loss_train.append(np.mean(array_loss_train_epoch))
 
-        print("Epoch: ", epoch)
+        print("Epoch: ", epoch+1)
         print("Mean loss: ", array_loss_train[epoch])
 
         model.eval()
@@ -348,7 +390,7 @@ elif morphing_strategy == 'regular':#------------------------------------------r
                 weights_batch = weights_batch.to(device)
 
                 # apply the selected OT strategy
-                base_batch, conditions_batch, target_batch = apply_ot_strategy(base_batch, conditions_batch, target_batch, ot_strategy)
+                base_batch, conditions_batch, target_batch, weights_batch = apply_ot_strategy(base_batch, conditions_batch, target_batch, weights_batch, ot_strategy)
 
                 '-----------------------------------------------regression specific--------------------------------------------------'
                 #concanatenate the base_batch and conditions_batch to create the input for the model
@@ -368,16 +410,20 @@ elif morphing_strategy == 'regular':#------------------------------------------r
         # Step scheduler based on validation loss
         scheduler.step(array_loss_val[-1])
 
+        if (epoch+1) % 10 == 0:  # Save model every 10 epochs
+                save_weights(model, filename=f"epochs{epoch+1}.pth", out_dir=out_dir)
+                lossplot_train(array_loss_train, array_loss_val, epoch+1, filename=f"loss_plot_epochs{epoch+1}.png", out_dir=out_dir)
+
         end = time.time()
-        print(f"Epoch {epoch} completed in {(end-start):0.2f} seconds. ")
+        print(f"Epoch {epoch+1} completed in {(end-start):0.2f} seconds. ")
         start=end
 
 
 
 #%%
 # Save the trained model state dict for later use
-save_weights(model, filename=f"{morphing_strategy}.pth")
+#save_weights(model, filename=f"{morphing_strategy}_lr{lr}_epochs{n_epochs}_bs{batch_size}_layers{layers}_w{hidden_dimensions}.pth")
 
 
 
-lossplot_train(array_loss_train, array_loss_val, n_epochs, filename=f"loss_plot_{morphing_strategy}.png")
+#lossplot_train(array_loss_train, array_loss_val, n_epochs, filename=f"loss_plot_{morphing_strategy}_lr{lr}_epochs{n_epochs}_bs{batch_size}_layers{layers}_w{hidden_dimensions}.png")

@@ -1,0 +1,116 @@
+{
+    "year": "2024_test",
+    "data_paths": [  
+        "/net/data_cms3a-1/daumann/Sommer_thesis/DataC_2024/*.parquet",   
+        "/net/data_cms3a-1/daumann/Sommer_thesis/DataD_2024/*.parquet",  
+        "/net/data_cms3a-1/daumann/Sommer_thesis/DataE_2024/*.parquet", 
+        "/net/data_cms3a-1/daumann/Sommer_thesis/DataF_2024/*.parquet",
+        "/net/data_cms3a-1/daumann/Sommer_thesis/DataG_2024/*.parquet",
+        "/net/data_cms3a-1/daumann/Sommer_thesis/DataH_2024/*.parquet", 
+        "/net/data_cms3a-1/daumann/Sommer_thesis/DataI_2024/*.parquet" 
+    ],
+    "mc_paths": [
+        "/net/data_cms3a-1/daumann/Sommer_thesis/Drell-Yan_2024/*.parquet"
+    ],
+    "mc_files_normalization": [
+        1.0
+    ], 
+    "mvaID_cut": 0.2,
+    "lumi_label":
+    [
+        108.96
+    ],
+    "Do_flows_validation": true,
+    "Perform_kinematic_rw": true,
+
+    "variables": {    
+        "var_list_corr": [
+          "photon_energyRaw",
+          "photon_pt",
+          "photon_r9",
+          "photon_sieie",
+          "photon_etaWidth",
+          "photon_phiWidth",
+          "photon_sieip",
+          "photon_s4",
+          "photon_hoe",
+          "photon_ecalPFClusterIso",
+          "photon_trkSumPtHollowConeDR03",
+          "photon_trkSumPtSolidConeDR04",
+          "photon_pfChargedIsoWorstVtx",
+          "photon_esEffSigmaRR",
+          "photon_esEnergyOverRawE",
+          "photon_hcalPFClusterIso",
+          "photon_mvaID",
+          "photon_ScEta",
+          "photon_energyErr",
+          "photon_phi",
+          "Rho_fixedGridRhoAll",
+          "mmy_mass",
+          "mmy_pt",
+          "dimuon_mass",
+          "photon_muon_near_dR"
+        ],
+        "data_var_list": [
+          "photon_energyRaw",
+          "photon_pt",
+          "photon_r9",
+          "photon_sieie",
+          "photon_etaWidth",
+          "photon_phiWidth",
+          "photon_sieip",
+          "photon_s4",
+          "photon_hoe",
+          "photon_ecalPFClusterIso",
+          "photon_trkSumPtHollowConeDR03",
+          "photon_trkSumPtSolidConeDR04",
+          "photon_pfChargedIsoWorstVtx",
+          "photon_esEffSigmaRR",
+          "photon_esEnergyOverRawE",
+          "photon_hcalPFClusterIso",
+          "photon_mvaID",
+          "photon_ScEta",
+          "photon_energyErr",
+          "photon_phi",
+          "Rho_fixedGridRhoAll",
+          "mmy_mass",
+          "mmy_pt",
+          "dimuon_mass",
+          "photon_muon_near_dR"
+        ],
+        "var_list": [
+          "photon_energyRaw",
+          "photon_pt",
+          "photon_raw_r9",
+          "photon_raw_sieie",
+          "photon_raw_etaWidth",
+          "photon_raw_phiWidth",
+          "photon_raw_sieip",
+          "photon_raw_s4",
+          "photon_raw_hoe",
+          "photon_raw_ecalPFClusterIso",
+          "photon_raw_trkSumPtHollowConeDR03",
+          "photon_raw_trkSumPtSolidConeDR04",
+          "photon_raw_pfChargedIsoWorstVtx",
+          "photon_raw_esEffSigmaRR",
+          "photon_raw_esEnergyOverRawE",
+          "photon_raw_hcalPFClusterIso",
+          "photon_mvaID_raw",
+          "photon_ScEta",
+          "photon_raw_energyErr",
+          "photon_phi",
+          "Rho_fixedGridRhoAll",
+          "mmy_mass",
+          "mmy_pt",
+          "dimuon_mass",
+          "photon_muon_near_dR"
+        ],
+        "conditions_list": [
+          "photon_pt",
+          "photon_ScEta",
+          "photon_phi",
+          "fixedGridRhoAll"
+        ]
+      }
+  }
+  
